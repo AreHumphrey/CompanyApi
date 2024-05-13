@@ -23,7 +23,15 @@ public class AuntificationController : ControllerBase
     [HttpPost("register")]
     public async Task<IActionResult> Register(UserDto userDto)
     {
-        var user = new User { UserName = userDto.UserName, Email = userDto.Email };
+        var user = new User
+        {
+            UserName = userDto.UserName,
+            Email = userDto.Email,
+            Login = userDto.UserName, // Assuming 'Login' is a required unique identifier
+            Name = userDto.Name ?? "Default Name",
+            PhoneNumber = userDto.PhoneNumber
+        };
+
         var result = await _userManager.CreateAsync(user, userDto.Password);
 
         if (result.Succeeded)
@@ -31,13 +39,18 @@ public class AuntificationController : ControllerBase
             return Ok();
         }
 
-        return BadRequest(result.Errors);
+        var errors = result.Errors.Select(e => e.Description);
+        return BadRequest(new { Errors = errors });
     }
+    
 
     [HttpPost("login")]
     public async Task<IActionResult> Login(UserLoginDto userLoginDto)
     {
+        // Находим пользователя по имени пользователя
         var user = await _userManager.FindByNameAsync(userLoginDto.UserName);
+
+        // Проверяем пароль и создаем токен, если пароль верен
         if (user != null && await _userManager.CheckPasswordAsync(user, userLoginDto.Password))
         {
             var authClaims = new List<Claim>
@@ -46,7 +59,13 @@ public class AuntificationController : ControllerBase
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
 
-            var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JWT:Secret"]));
+            var secretKey = _configuration["JWT:Secret"];
+            if (string.IsNullOrEmpty(secretKey))
+            {
+                return Unauthorized("JWT secret key is not set in the configuration");
+            }
+
+            var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
 
             var token = new JwtSecurityToken(
                 issuer: _configuration["JWT:ValidIssuer"],
@@ -62,6 +81,8 @@ public class AuntificationController : ControllerBase
                 expiration = token.ValidTo
             });
         }
+
+        // Возвращаем статус 401 Unauthorized, если аутентификация не удалась
         return Unauthorized();
     }
 }
