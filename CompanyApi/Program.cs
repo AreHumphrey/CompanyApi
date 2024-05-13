@@ -3,24 +3,22 @@ using CompanyApi.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
-using System;
 using System.Text;
-using CompanyApi;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Регистрация контроллеров и сервисов Swagger для документирования API.
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Configure the database context for PostgreSQL
+// Настройка контекста базы данных с использованием PostgreSQL.
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
-        .LogTo(Console.WriteLine, LogLevel.Information));  // Ensuring that all logs are informational
+        .LogTo(Console.WriteLine, LogLevel.Information));  // Логирование SQL запросов на консоль.
 
-// Configure Identity with custom password settings
+// Настройка Identity с пользовательскими настройками паролей.
 builder.Services.AddIdentity<User, IdentityRole>(options =>
 {
     options.Password.RequireDigit = false;
@@ -32,37 +30,43 @@ builder.Services.AddIdentity<User, IdentityRole>(options =>
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
 
-// Generate a secure key and configure JWT Authentication
-var secureKey = SecurityUtils.GenerateSecureKey(); // Ensure key is sufficiently long for HS256
-var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secureKey));
+// Настройка JWT аутентификации.
+var jwtIssuer = builder.Configuration["AuthSettings:Issuer"];
+var jwtKey = builder.Configuration["AuthSettings:Key"];
+var jwtAudience = builder.Configuration["AuthSettings:Audience"];
 
-builder.Services.AddAuthentication(options =>
+builder.Services.AddAuthentication(auth =>
+{
+    auth.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    auth.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
     {
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = signingKey, // Ensure the signing key is correctly set here
-            ValidateIssuer = false,
-            ValidateAudience = false
-        };
-    });
-// Configure CORS
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8
+            .GetBytes(builder.Configuration.GetSection("AuthSettings:Token").Value)),
+        ValidateIssuer = false,
+        ValidIssuer = jwtIssuer,
+        ValidateAudience = false,
+        ValidAudience = jwtAudience,
+        RequireExpirationTime = false,
+    };
+});
+
+// Настройка политики CORS для доступа к API из определенных доменов.
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin", policy =>
-        policy.WithOrigins("http://example.com")  // Ensure this is the correct URL that you need to allow
+        policy.WithOrigins("http://example.com")  // Замените на актуальный URL, который нужно разрешить.
             .AllowAnyMethod()
             .AllowAnyHeader());
 });
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Конфигурация HTTP-пайплайна.
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
@@ -72,14 +76,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Authentication & Authorization
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Use CORS policy
 app.UseCors("AllowSpecificOrigin");
 
-// Map controllers
 app.MapControllers();
 
 app.Run();
